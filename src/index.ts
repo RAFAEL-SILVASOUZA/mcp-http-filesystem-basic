@@ -737,6 +737,80 @@ function createServer(workspaceRoot: string = process.cwd()): McpServer {
       }
     }
   );
+  // Register websearch tool
+  s.registerTool(
+    "websearch",
+    {
+      description:
+        "Search the web using DuckDuckGo. Returns a list of results with titles, URLs, and snippets.",
+      inputSchema: {
+        query: z
+          .string()
+          .describe("The search query string."),
+        limit: z
+          .number()
+          .min(1)
+          .max(20)
+          .optional()
+          .default(5)
+          .describe("Maximum number of results to return. Default 5, max 20."),
+      },
+    },
+    async ({ query, limit }) => {
+      try {
+        const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+        
+        const response = await fetch(searchUrl, {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+          },
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const html = await response.text();
+        const $ = cheerio.load(html);
+        
+        const results: Array<{ title: string; url: string; snippet: string }> = [];
+        
+        // DuckDuckGo structure typically uses .result classes
+        $(".result").each((i, el) => {
+          if (results.length >= limit) return false; // break loop
+
+          const $el = $(el);
+          const $a = $el.find(".result__a");
+          const title = $a.text();
+          const url = $a.attr("href") || "";
+          const snippet = $el.find(".result__snippet").text().trim();
+
+          if (title && url) {
+            results.push({ title, url, snippet });
+          }
+        });
+
+        if (results.length === 0) {
+          return {
+            content: [{ type: "text" as const, text: "No results found." }],
+          };
+        }
+
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }],
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          content: [{ type: "text" as const, text: `Error searching for '${query}': ${message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
   return s;
 }
 

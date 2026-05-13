@@ -41,6 +41,10 @@
     "curl -v http://localhost:3001/mcp 2>&1 | head -50",
     "cd /Users/rafaelss8/Projetos/Pessoal/mcp-http && npm run dev 2>&1 | head -100",
     "find /Users/rafaelss8/Projetos/Pessoal/mcp-http -type f -name \"*.ts\" 2>/dev/null | head -20",
-    "find /Users/rafaelss8/Projetos/Pessoal/mcp-http -path \"*/node_modules\" -prune -o -type f -name \"*.ts\" -print"
+    "find /Users/rafaelss8/Projetos/Pessoal/mcp-http -path \"*/node_modules\" -prune -o -type f -name \"*.ts\" -print",
+    "ls -la dist/index.js 2>/dev/null && echo \"--- dist exists ---\" || echo \"--- no dist ---\"",
+    "grep -c \"cors\" dist/index.js",
+    "grep -A5 \"cors\" dist/index.js | head -20",
+    "lsof -i :3001 2>/dev/null | head -10"
   ]
 }
