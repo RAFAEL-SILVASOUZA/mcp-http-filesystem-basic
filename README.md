@@ -1,6 +1,6 @@
-# MCP Web Scraper
+# MCP Server
 
-Um servidor **MCP (Model Context Protocol)** Streamable HTTP que fornece ferramentas para interação com sistema de arquivos e scraping de URLs.
+Um servidor **MCP (Model Context Protocol)** Streamable HTTP modular que fornece ferramentas para sistema de arquivos, navegação web e execução de comandos shell.
 
 ## 📋 Funcionalidades
 
@@ -155,7 +155,7 @@ Lê o conteúdo de um arquivo.
 
 ### `create-file`
 
-Cria um novo arquivo com o conteúdo especificado. Cria diretórios pais se não existirem. Não sobrescreve arquivos existentes.
+Cria um novo arquivo com o conteúdo especificado. Cria diretórios pais se não existirem. Não sobrescreve por padrão (use `overwrite: true` para forçar).
 
 **Parâmetros:**
 ```typescript
@@ -407,8 +407,3 @@ MIT
 4. Push para a branch (`git push origin feature/AmazingFeature`)
 5. Abra um Pull Request
 
----
-
-## 📞 Suporte
-
-Para questões e sugestões, abra uma issue no repositório.
