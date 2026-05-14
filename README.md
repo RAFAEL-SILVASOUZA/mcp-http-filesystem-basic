@@ -10,9 +10,12 @@ Um servidor **MCP (Model Context Protocol)** Streamable HTTP que fornece ferrame
 |------|-----------|
 | `file-glob` | Explora diretórios e lista arquivos/subdiretórios de forma hierárquica |
 | `read-file` | Lê o conteúdo completo de arquivos de texto |
-| `create-file` | Cria um novo arquivo com o conteúdo especificado |
-| `edit-file` | Edita um arquivo existente substituindo texto específico |
+| `create-file` | Cria um novo arquivo com o conteúdo especificado (suporta sobrescrever) |
+| `edit-file` | Edita um arquivo existente substituindo texto específico (suporta replaceAll) |
+| `grep` | Busca padrões (texto/regex) em múltiplos arquivos com suporte a glob |
 | `scrape_url` | Busca URLs e extrai texto visível de páginas HTML |
+| `websearch` | Pesquisa na web usando DuckDuckGo e retorna resultados com títulos, URLs e snippets |
+| `execute_command` | Executa comandos shell seguros (lista branca de comandos permitidos) |
 
 ---
 
@@ -257,11 +260,21 @@ domain in examples without prior coordination or asking for permission.
 ```
 mcp-http/
 ├── src/
-│   └── index.ts        # Servidor MCP com 3 tools
-├── build/              # Arquivos compilados (após build)
-├── package.json        # Dependências e scripts
-├── tsconfig.json       # Configuração TypeScript
-└── README.md           # Este arquivo
+│   ├── index.ts            # Ponto de entrada (bootstrap)
+│   ├── server/
+│   │   ├── express.ts      # Configuração do servidor Express + CORS
+│   │   └── mcpServer.ts    # Fábrica do McpServer
+│   ├── tools/
+│   │   ├── fsTools.ts      # Tools de sistema de arquivos (file-glob, read-file, create-file, edit-file, grep)
+│   │   ├── webTools.ts     # Tools web (scrape_url, websearch)
+│   │   └── shellTools.ts   # Tools de shell (execute_command)
+│   └── utils/
+│       ├── fs.ts           # Utilitários de FS (gitignore, exploreDirectory)
+│       └── path.ts         # Validação de caminhos (anti path-traversal)
+├── dist/                   # Arquivos compilados (após build)
+├── package.json            # Dependências e scripts
+├── tsconfig.json           # Configuração TypeScript
+└── README.md               # Este arquivo
 ```
 
 ### Fluxo do Servidor
@@ -288,14 +301,25 @@ mcp-http/
        ▼
 ┌─────────────────┐
 │    McpServer    │
-│  (5 Tools)      │
+│  (8 Tools)      │
 │  • file-glob    │
 │  • read-file    │
 │  • create-file  │
 │  • edit-file    │
+│  • grep         │
 │  • scrape_url   │
+│  • websearch    │
+│  • exec_command │
 └─────────────────┘
 ```
+
+### Melhorias Recentes
+
+- **Arquitetura Modular**: Código organizado em módulos separados por responsabilidade
+- **Validação de Segurança**: Proteção contra Path Traversal (`validatePathInWorkspace`)
+- **Sessão Stateful**: Transportes MCP armazenados por sessão para conexões persistentes
+- **create-file**: Suporte a sobrescrita via parâmetro `overwrite`
+- **edit-file**: Suporte a substituição parcial via parâmetro `replaceAll`
 
 ---
 
@@ -317,9 +341,19 @@ mcp-http/
 |------|------------|
 | `file-glob` | Apenas leitura, profundidade máxima de 10 níveis |
 | `read-file` | Apenas leitura de arquivos de texto |
-| `create-file` | Não sobrescreve arquivos existentes (flag `wx`) |
+| `create-file` | Não sobrescreve arquivos existentes por padrão (flag `wx`). Use `overwrite: true` para forçar |
 | `edit-file` | Valida que `oldText` existe antes de editar |
+| `grep` | Respeita `.gitignore`, limita resultados a 1000 matches |
 | `scrape_url` | Timeout de 15s, User-Agent definido |
+| `websearch` | Timeout de 10s, DuckDuckGo como motor de busca |
+| `execute_command` | Lista branca de comandos, timeout configurável, restrito ao workspace |
+
+### Validação de Caminhos (Anti Path-Traversal)
+
+Todas as ferramentas que operam no sistema de arquivos passam pela função `validatePathInWorkspace`, que garante que:
+- Caminhos resolvidos permaneçam dentro do `workspaceRoot`
+- Tentativas de escapar via `../` sejam bloqueadas
+- Arquivos sensíveis fora do workspace não sejam acessíveis
 
 ---
 
