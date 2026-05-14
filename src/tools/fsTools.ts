@@ -97,39 +97,42 @@ export function registerFsTools(server: McpServer, workspaceRoot: string) {
     }
   );
 
-  // Register create-file tool
+  // Register create-file tool — ONLY for NEW files, never overwrites
   server.registerTool(
     "create-file",
     {
       description:
-        `Create a new file with the specified content. Creates parent directories if they don't exist. Returns success message with file path.
+        `Create a NEW file that does NOT exist yet. This tool is ONLY for creating files from scratch.
+
+        ⚠️ CRITICAL RULES:
+        - NEVER use this tool to edit or modify an existing file. Use "edit-file" instead.
+        - This tool will ALWAYS reject if the file already exists — there is no overwrite option.
+        - Before calling this tool, verify the file does not exist (use "read-file" or "file-glob" to check).
+        - If you need to change content in an existing file, ALWAYS use "edit-file" with oldText/newText.
+
+        Creates parent directories if they don't exist. Returns success message with file path.
 
         PATH can be absolute or relative to the workspace root.`,
       inputSchema: {
         path: z
           .string()
-          .describe("The file path to create. Can be absolute or relative to workspace root."),
+          .describe("The file path to create. Can be absolute or relative to workspace root. The file MUST NOT already exist."),
         content: z
           .string()
-          .describe("The content to write to the file"),
+          .describe("The content to write to the new file"),
         encoding: z
           .string()
           .optional()
           .default("utf-8")
           .describe("File encoding. Default 'utf-8'."),
-        overwrite: z
-          .boolean()
-          .optional()
-          .default(false)
-          .describe("Whether to overwrite existing files. Default: false."),
       },
     },
-    async ({ path: filePath, content, encoding, overwrite }) => {
+    async ({ path: filePath, content, encoding }) => {
       try {
         const absolutePath = validatePathInWorkspace(filePath, workspaceRoot);
         const fileEncoding: BufferEncoding = (encoding as BufferEncoding) || "utf-8";
-        const flag = overwrite ? "w" : "wx";
-        await writeFile(absolutePath, content, { encoding: fileEncoding, flag });
+        // Force "wx" flag — never allow overwrite
+        await writeFile(absolutePath, content, { encoding: fileEncoding, flag: "wx" });
 
         return {
           content: [{ type: "text" as const, text: `File created successfully at: ${absolutePath}` }],
@@ -138,7 +141,7 @@ export function registerFsTools(server: McpServer, workspaceRoot: string) {
         const message = error instanceof Error ? error.message : String(error);
         if (message.includes("EEXIST")) {
           return {
-            content: [{ type: "text" as const, text: `Error: File already exists at ${filePath}. Set overwrite: true to overwrite.` }],
+            content: [{ type: "text" as const, text: `Error: File already exists at ${filePath}. Use "edit-file" to modify existing files. "create-file" is ONLY for new files.` }],
             isError: true,
           };
         }

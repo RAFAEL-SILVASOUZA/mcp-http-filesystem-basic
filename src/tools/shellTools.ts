@@ -3,47 +3,25 @@ import { z } from "zod";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { isAbsolute, join } from "path";
-import { validatePathInWorkspace } from "../utils/path.js";
 
 const execAsync = promisify(exec);
 
-// Whitelist of allowed commands
-const ALLOWED_COMMANDS = new Set([
-  // Navigation / listing
-  "ls", "la", "dir",
-  // File operations (read-only)
-  "cat", "head", "tail", "less", "more", "wc", "file",
-  // Search
-  "grep", "find", "locate",
-  // Git
-  "git",
-  // Node / npm
-  "node", "npm", "npx", "yarn", "pnpm",
-  // Python
-  "python", "python3", "pip", "pip3",
-  // Build / compile
-  "make", "cmake",
-  // Info / system
-  "whoami", "hostname", "uname", "date", "uptime",
-  // Package managers
-  "brew", "apt", "apt-get",
-  // Docker (read-only)
-  "docker",
-  // Text processing
-  "sed", "awk", "sort", "uniq", "cut", "tr", "xargs",
-  // Network (read-only)
-  "curl", "wget", "ping", "dig", "nslookup",
-  // Misc
-  "echo", "test", "stat", "du", "df", "tree",
-]);
+// Dangerous commands that ALWAYS require explicit confirmation
+const DANGEROUS_PATTERNS = [
+  /\brm\s+(-[rRfF]|-rf|-fr)/,           // rm -rf, rm -fr, etc.
+  /\bformat\b/,                          // disk formatting
+  /\bdd\s+if=/,                         // raw disk access
+  /\bmkfs\b/,                           // filesystem creation
+  /\bshutdown\b/,                       // system shutdown
+  /\breboot\b/,                         // system reboot
+  /\bsudo\b/,                           // privilege escalation
+  /\bchmod\s+[0-7]*[7-9]/,             // dangerous permissions
+  /\bchown\b/,                          // ownership changes
+  /\bmv\s+.*\/?(\.env|\.git|node_modules)/, // moving sensitive dirs
+];
 
-function isCommandAllowed(command: string): boolean {
-  // Extract the base command (first word, before any flags or arguments)
-  const baseCommand = command.trim().split(/\s+/)[0].split("/").pop();
-
-  // Allow pipes and chained commands only if all base commands are allowed
-  const commands = baseCommand?.split("|") || [baseCommand];
-  return commands.every(cmd => ALLOWED_COMMANDS.has(cmd?.trim() || ""));
+function isDangerousCommand(command: string): boolean {
+  return DANGEROUS_PATTERNS.some(pattern => pattern.test(command));
 }
 
 export function registerShellTools(server: McpServer, workspaceRoot: string) {
@@ -51,15 +29,19 @@ export function registerShellTools(server: McpServer, workspaceRoot: string) {
     "execute_command",
     {
       description:
-        `Execute a shell command and return its output. Commands are restricted to a safe whitelist and run within the workspace directory.
+        `Execute ANY shell command and return its output. Commands can run in any directory on the system.
 
-        ALLOWED COMMANDS: ls, cat, head, tail, grep, find, git, node, npm, npx, yarn, pnpm, python, python3, pip, pip3, make, curl, wget, docker, sed, awk, sort, uniq, cut, tree, du, df, and others (see source for full list).
+        ⚠️ CONFIRMATION REQUIRED:
+        - Before executing, the LLM MUST ask the user: "Vou executar: [command]. Executar? (sim / não / sempre permitir)"
+        - "sim" → execute once
+        - "não" → do not execute
+        - "sempre permitir" → execute without asking again for similar commands in this session
+        - For dangerous commands (rm -rf, sudo, format, etc.), confirmation is ALWAYS required
 
         SAFETY:
-        - Commands run inside the workspace root directory
-        - Only whitelisted commands are allowed
         - Output is limited to 50000 characters
-        - Timeout is 30 seconds
+        - Timeout is 30 seconds (max 120)
+        - Dangerous patterns (rm -rf, sudo, format, dd, etc.) require explicit confirmation
 
         Examples:
         - execute_command("ls -la")
@@ -70,11 +52,11 @@ export function registerShellTools(server: McpServer, workspaceRoot: string) {
         command: z
           .string()
           .max(500)
-          .describe("The shell command to execute. Only whitelisted commands are allowed."),
+          .describe("The shell command to execute. ANY command is allowed, but confirmation is required."),
         cwd: z
           .string()
           .optional()
-          .describe("Working directory for the command. Must be within the workspace root. Defaults to workspace root."),
+          .describe("Working directory for the command. Can be any path on the system. Defaults to workspace root."),
         timeout: z
           .number()
           .min(1)
@@ -82,28 +64,35 @@ export function registerShellTools(server: McpServer, workspaceRoot: string) {
           .optional()
           .default(30)
           .describe("Timeout in seconds. Default 30, max 120."),
+        confirmed: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Set to true ONLY after the user has explicitly confirmed. For dangerous commands, this is ALWAYS required."),
       },
     },
-    async ({ command, cwd, timeout }) => {
+    async ({ command, cwd, timeout, confirmed }) => {
       try {
-        // Validate command against whitelist
-        if (!isCommandAllowed(command)) {
+        // Check if command is dangerous
+        const dangerous = isDangerousCommand(command);
+
+        // Require confirmation for dangerous commands
+        if (dangerous && !confirmed) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: `Command not allowed: '${command}'. Only whitelisted commands are permitted.`,
+                text: `⚠️ DANGEROUS COMMAND DETECTED: '${command}'\n\nThis command matches a dangerous pattern and requires explicit confirmation.\nSet confirmed: true and get explicit user approval before executing.`,
               },
             ],
             isError: true,
           };
         }
 
-        // Determine working directory
+        // Determine working directory — any path is allowed
         let workingDir = workspaceRoot;
         if (cwd) {
-          const resolvedCwd = isAbsolute(cwd) ? cwd : join(workspaceRoot, cwd);
-          workingDir = validatePathInWorkspace(resolvedCwd, workspaceRoot);
+          workingDir = isAbsolute(cwd) ? cwd : join(workspaceRoot, cwd);
         }
 
         // Execute the command
