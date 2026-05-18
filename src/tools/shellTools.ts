@@ -95,12 +95,11 @@ export function registerShellTools(server: McpServer, workspaceRoot: string) {
           workingDir = isAbsolute(cwd) ? cwd : join(workspaceRoot, cwd);
         }
 
-        // Execute the command
+        // Execute the command        
         const { stdout, stderr } = await execAsync(command, {
           cwd: workingDir,
           timeout: timeout * 1000,
           maxBuffer: 1024 * 1024, // 1MB buffer
-          shell: "/bin/bash",
         });
 
         // Build output

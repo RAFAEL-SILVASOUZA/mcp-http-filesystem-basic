@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerFsTools } from "../tools/fsTools.js";
 import { registerWebTools } from "../tools/webTools.js";
 import { registerShellTools } from "../tools/shellTools.js";
+import { registerSystemTools } from "../tools/systemTools.js";
 
 export function createMcpServer(workspaceRoot: string): McpServer {
   const server = new McpServer({
@@ -12,6 +13,7 @@ export function createMcpServer(workspaceRoot: string): McpServer {
   registerFsTools(server, workspaceRoot);
   registerWebTools(server);
   registerShellTools(server, workspaceRoot);
+  registerSystemTools(server);
 
   return server;
 }
