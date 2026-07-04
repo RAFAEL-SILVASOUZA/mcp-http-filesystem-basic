@@ -86,11 +86,13 @@ export function registerWebTools(server: McpServer) {
   );
 
   // Register websearch tool
+  const SEARXNG_BASE_URL = process.env.SEARXNG_URL ?? "http://localhost:5001";
+
   server.registerTool(
     "websearch",
     {
       description:
-        "Search the web using DuckDuckGo. Returns a list of results with titles, URLs, and snippets.",
+        "Search the web using a self-hosted SearXNG instance. Returns a list of results with titles, URLs, and snippets.",
       inputSchema: {
         query: z
           .string()
@@ -106,12 +108,15 @@ export function registerWebTools(server: McpServer) {
     },
     async ({ query, limit }) => {
       try {
-        const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+        const searchUrl =
+          `${SEARXNG_BASE_URL.replace(/\/+$/, "")}/search` +
+          `?q=${encodeURIComponent(query)}&format=json`;
 
         const response = await fetch(searchUrl, {
           headers: {
             "User-Agent":
               "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            Accept: "application/json",
             "Accept-Language": "en-US,en;q=0.9",
           },
           signal: AbortSignal.timeout(10_000),
@@ -121,25 +126,18 @@ export function registerWebTools(server: McpServer) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        const html = await response.text();
-        const $ = cheerio.load(html);
+        const data = (await response.json()) as {
+          results?: Array<{ title?: string; url?: string; content?: string }>;
+        };
 
-        const results: Array<{ title: string; url: string; snippet: string }> = [];
-
-        // DuckDuckGo structure typically uses .result classes
-        $(".result").each((i, el) => {
-          if (results.length >= limit) return false; // break loop
-
-          const $el = $(el);
-          const $a = $el.find(".result__a");
-          const title = $a.text();
-          const url = $a.attr("href") || "";
-          const snippet = $el.find(".result__snippet").text().trim();
-
-          if (title && url) {
-            results.push({ title, url, snippet });
-          }
-        });
+        const results = (data.results ?? [])
+          .slice(0, limit)
+          .map((r) => ({
+            title: r.title ?? "",
+            url: r.url ?? "",
+            snippet: (r.content ?? "").trim(),
+          }))
+          .filter((r) => r.title && r.url);
 
         if (results.length === 0) {
           return {
