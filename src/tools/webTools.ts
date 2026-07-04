@@ -131,7 +131,7 @@ export function registerWebTools(server: McpServer) {
         };
 
         const results = (data.results ?? [])
-          .slice(0, limit)
+          .slice(1, limit)
           .map((r) => ({
             title: r.title ?? "",
             url: r.url ?? "",
