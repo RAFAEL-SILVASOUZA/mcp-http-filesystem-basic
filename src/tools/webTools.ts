@@ -130,14 +130,25 @@ export function registerWebTools(server: McpServer) {
           results?: Array<{ title?: string; url?: string; content?: string }>;
         };
 
+        // Canonicaliza a URL para remover duplicatas (ignora query e barra final).
+        const seen = new Set<string>();
+        const dedupeKey = (url: string) =>
+          url.split("?")[0].replace(/\/+$/, "").toLowerCase();
+
         const results = (data.results ?? [])
-          .slice(1, limit)
           .map((r) => ({
             title: r.title ?? "",
             url: r.url ?? "",
             snippet: (r.content ?? "").trim(),
           }))
-          .filter((r) => r.title && r.url);
+          .filter((r) => r.title && r.url)
+          .filter((r) => {
+            const key = dedupeKey(r.url);
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .slice(0, limit);
 
         if (results.length === 0) {
           return {
