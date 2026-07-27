@@ -15,7 +15,35 @@ Um servidor **MCP (Model Context Protocol)** Streamable HTTP modular que fornece
 | `grep` | Busca padrões (texto/regex) em múltiplos arquivos com suporte a glob |
 | `scrape_url` | Busca URLs e extrai texto visível de páginas HTML |
 | `websearch` | Pesquisa na web usando DuckDuckGo e retorna resultados com títulos, URLs e snippets |
-| `execute_command` | Executa comandos shell seguros (lista branca de comandos permitidos) |
+| `execute_command` | Executa comandos shell, de forma síncrona ou em background (`background: true`) |
+| `list-background-processes` | Lista os processos iniciados em background, com ID, PID e status |
+| `read-background-output` | Lê o stdout/stderr acumulado de um processo em background |
+| `stop-background-process` | Encerra um processo em background (mata a árvore inteira) |
+| `get-system-info` | Retorna data, hora e informações do sistema operacional |
+
+### Executando servidores em background
+
+Comandos que não terminam sozinhos — `npm run dev`, `node server.js`, watchers —
+travariam a chamada até o timeout matá-los. Para esses casos, use `background: true`:
+
+```jsonc
+// 1. sobe a API e devolve o handle em ~2s, já com a saída de inicialização
+{ "name": "execute_command",
+  "arguments": { "command": "npm run dev", "background": true } }
+// → ID: bg-1, PID: 12345, "Server listening on :3000"
+
+// 2. testa a API livremente (scrape_url, execute_command com curl, etc.)
+
+// 3. lê os logs gerados pelos testes
+{ "name": "read-background-output", "arguments": { "id": "bg-1" } }
+
+// 4. encerra ao terminar — libera a porta
+{ "name": "stop-background-process", "arguments": { "id": "bg-1" } }
+```
+
+O registro de processos é compartilhado por todas as sessões MCP, e todos os
+processos vivos são encerrados quando o servidor MCP é derrubado — não ficam órfãos
+segurando portas.
 
 ---
 
@@ -73,7 +101,7 @@ Adicione ao arquivo `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "web-scraper": {
+    "mcp-dev-toolkit": {
       "url": "http://localhost:3001/mcp"
     }
   }
@@ -267,7 +295,9 @@ mcp-http/
 │   ├── tools/
 │   │   ├── fsTools.ts      # Tools de sistema de arquivos (file-glob, read-file, create-file, edit-file, grep)
 │   │   ├── webTools.ts     # Tools web (scrape_url, websearch)
-│   │   └── shellTools.ts   # Tools de shell (execute_command)
+│   │   ├── shellTools.ts   # Tools de shell (execute_command + gestão de background)
+│   │   ├── backgroundProcesses.ts # Registro e ciclo de vida dos processos em background
+│   │   └── systemTools.ts  # Tools de sistema (get-system-info)
 │   └── utils/
 │       ├── fs.ts           # Utilitários de FS (gitignore, exploreDirectory)
 │       └── path.ts         # Validação de caminhos (anti path-traversal)
@@ -346,7 +376,8 @@ mcp-http/
 | `grep` | Respeita `.gitignore`, limita resultados a 1000 matches |
 | `scrape_url` | Timeout de 15s, User-Agent definido |
 | `websearch` | Timeout de 10s, DuckDuckGo como motor de busca |
-| `execute_command` | Lista branca de comandos, timeout configurável, restrito ao workspace |
+| `execute_command` | Padrões perigosos (`rm -rf`, `sudo`, `format`, `dd`…) exigem `confirmed: true`; timeout configurável no modo síncrono |
+| `stop-background-process` | Encerra a árvore de processos (`taskkill /T /F` no Windows), garantindo que a porta seja liberada |
 
 ### Validação de Caminhos (Anti Path-Traversal)
 

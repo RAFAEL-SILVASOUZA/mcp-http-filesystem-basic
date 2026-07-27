@@ -6,7 +6,7 @@ import { registerSystemTools } from "../tools/systemTools.js";
 
 export function createMcpServer(workspaceRoot: string): McpServer {
   const server = new McpServer({
-    name: "web-scraper",
+    name: "mcp-dev-toolkit",
     version: "1.0.0",
   });
 

@@ -1,9 +1,9 @@
 {
-  "name": "mcp-web-scraper",
+  "name": "mcp-dev-toolkit",
   "version": "1.0.0",
   "type": "module",
   "bin": {
-    "mcp-web-scraper": "./build/index.js"
+    "mcp-dev-toolkit": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc && chmod 755 dist/index.js",
