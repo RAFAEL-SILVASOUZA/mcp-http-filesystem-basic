@@ -10,8 +10,8 @@ Um servidor **MCP (Model Context Protocol)** Streamable HTTP modular que fornece
 |------|-----------|
 | `get-agent-instructions` | Retorna as instruções operacionais do agente + contexto da sessão. **Deve ser lida primeiro** |
 | `file-glob` | Explora diretórios e lista arquivos/subdiretórios de forma hierárquica |
-| `read-file` | Lê o conteúdo completo de arquivos de texto |
-| `create-file` | Cria um novo arquivo com o conteúdo especificado (suporta sobrescrever) |
+| `read-file` | Lê intervalos paginados de arquivos de texto, com limites de linhas e caracteres |
+| `create-file` | Cria um novo arquivo e seus diretórios-pai; nunca sobrescreve |
 | `edit-file` | Edita um arquivo existente substituindo texto específico (suporta replaceAll) |
 | `grep` | Busca padrões (texto/regex) em múltiplos arquivos com suporte a glob |
 | `scrape_url` | Busca URLs e extrai texto visível de páginas HTML |
@@ -170,7 +170,8 @@ Explora um diretório e lista arquivos e subdiretórios.
 ```typescript
 {
   path: string,           // Caminho do diretório
-  maxDepth: number       // Profundidade máxima (1-10, default: 3)
+  maxDepth: number,      // Profundidade máxima (1-10, default: 3)
+  maxEntries: number     // Máximo de entradas retornadas (default: 500, max: 5000)
 }
 ```
 
@@ -206,7 +207,10 @@ Lê o conteúdo de um arquivo.
 ```typescript
 {
   path: string,          // Caminho do arquivo
-  encoding: string       // Codificação (default: "utf-8")
+  encoding: string,      // Codificação (default: "utf-8")
+  startLine: number,     // Primeira linha, começando em 1 (default: 1)
+  maxLines: number,      // Máximo de linhas (default: 400, max: 5000)
+  maxChars: number       // Máximo de caracteres (default: 12000, max: 100000)
 }
 ```
 
@@ -224,7 +228,7 @@ Lê o conteúdo de um arquivo.
 
 ### `create-file`
 
-Cria um novo arquivo com o conteúdo especificado. Cria diretórios pais se não existirem. Não sobrescreve por padrão (use `overwrite: true` para forçar).
+Cria um novo arquivo com o conteúdo especificado e cria diretórios-pai se não existirem. Nunca sobrescreve arquivos existentes.
 
 **Parâmetros:**
 ```typescript
@@ -416,13 +420,13 @@ mcp-http/
 | Tool | Restrições |
 |------|------------|
 | `file-glob` | Apenas leitura, profundidade máxima de 10 níveis |
-| `read-file` | Apenas leitura de arquivos de texto |
-| `create-file` | Não sobrescreve arquivos existentes por padrão (flag `wx`). Use `overwrite: true` para forçar |
+| `read-file` | Apenas leitura; retorna por padrão até 400 linhas e 12.000 caracteres |
+| `create-file` | Nunca sobrescreve arquivos existentes (flag `wx`) |
 | `edit-file` | Valida que `oldText` existe antes de editar |
 | `grep` | Respeita `.gitignore`, limita resultados a 1000 matches |
 | `scrape_url` | Timeout de 15s, User-Agent definido |
 | `websearch` | Timeout de 10s, DuckDuckGo como motor de busca |
-| `execute_command` | Padrões perigosos (`rm -rf`, `sudo`, `format`, `dd`…) exigem `confirmed: true`; timeout configurável no modo síncrono |
+| `execute_command` | Padrões perigosos exigem `confirmed: true`; resposta padrão limitada a 8.000 caracteres, preservando começo e fim |
 | `stop-background-process` | Encerra a árvore de processos (`taskkill /T /F` no Windows), garantindo que a porta seja liberada |
 
 ### Validação de Caminhos (Anti Path-Traversal)

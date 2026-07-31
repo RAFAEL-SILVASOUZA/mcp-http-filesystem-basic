@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { readdir, readFile, writeFile, stat } from "fs/promises";
-import { join, isAbsolute } from "path";
+import { mkdir, readdir, readFile, writeFile, stat } from "fs/promises";
+import { dirname, join } from "path";
 import { relative } from "path";
 import { minimatch } from "minimatch";
 import { loadGitignore, isIgnored, exploreDirectory } from "../utils/fs.js";
@@ -30,20 +30,37 @@ export function registerFsTools(server: McpServer, workspaceRoot: string) {
           .optional()
           .default(3)
           .describe("Maximum depth of directories to explore. Default 3, max 10."),
+        maxEntries: z
+          .number()
+          .min(1)
+          .max(5000)
+          .optional()
+          .default(500)
+          .describe("Maximum combined file and directory entries returned. Default 500, max 5000."),
       },
     },
-    async ({ path: dirPath, maxDepth }) => {
+    async ({ path: dirPath, maxDepth, maxEntries }) => {
       try {
         const absolutePath = validatePathInWorkspace(dirPath, workspaceRoot);
         const gitignorePatterns = await loadGitignore(workspaceRoot);
         const { files, directories } = await exploreDirectory(absolutePath, maxDepth, 0, absolutePath, gitignorePatterns);
+        const totalEntries = files.length + directories.length;
+        const truncated = totalEntries > maxEntries;
+        const limitedDirectories = directories.slice(0, maxEntries);
+        const remaining = Math.max(0, maxEntries - limitedDirectories.length);
+        const limitedFiles = files.slice(0, remaining);
 
         const result = {
           path: absolutePath,
           maxDepth,
-          directories: directories.length > 0 ? directories : ["(no subdirectories)"],
-          files: files.length > 0 ? files : ["(no files)"],
-          summary: `Found ${directories.length} directory(ies) and ${files.length} file(s)`,
+          directories: limitedDirectories.length > 0 ? limitedDirectories : ["(no subdirectories)"],
+          files: limitedFiles.length > 0 ? limitedFiles : ["(no files)"],
+          totalEntries,
+          returnedEntries: limitedDirectories.length + limitedFiles.length,
+          truncated,
+          summary: truncated
+            ? `Found ${directories.length} directory(ies) and ${files.length} file(s); returned the first ${maxEntries} entries`
+            : `Found ${directories.length} directory(ies) and ${files.length} file(s)`,
         };
 
         return {
@@ -64,9 +81,12 @@ export function registerFsTools(server: McpServer, workspaceRoot: string) {
     "read-file",
     {
       description:
-        `Read the contents of a file. Returns the full text content of the file. Supports text files, source code, JSON, YAML, and other text-based formats.
+        `Read a bounded range of a text file. Defaults to the first 400 lines and at most 12000 characters.
 
-        PATH can be absolute or relative to the workspace root.`,
+        Use startLine to continue reading large files. The response reports the total line count,
+        returned range, and whether more content remains.
+
+        PATH can be absolute or relative to the workspace root. Line numbers are 1-based.`,
       inputSchema: {
         path: z
           .string()
@@ -76,16 +96,75 @@ export function registerFsTools(server: McpServer, workspaceRoot: string) {
           .optional()
           .default("utf-8")
           .describe("File encoding. Default 'utf-8'."),
+        startLine: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .default(1)
+          .describe("First line to return, 1-based. Default 1."),
+        maxLines: z
+          .number()
+          .int()
+          .min(1)
+          .max(5000)
+          .optional()
+          .default(400)
+          .describe("Maximum lines to return. Default 400, max 5000."),
+        maxChars: z
+          .number()
+          .int()
+          .min(100)
+          .max(100000)
+          .optional()
+          .default(12000)
+          .describe("Maximum characters of file content to return. Default 12000, max 100000."),
       },
     },
-    async ({ path: filePath, encoding }) => {
+    async ({ path: filePath, encoding, startLine, maxLines, maxChars }) => {
       try {
         const absolutePath = validatePathInWorkspace(filePath, workspaceRoot);
         const fileEncoding: BufferEncoding = (encoding as BufferEncoding) || "utf-8";
         const content = await readFile(absolutePath, { encoding: fileEncoding });
+        const lines = content.split(/\r?\n/);
+        const startIndex = startLine - 1;
+
+        if (startIndex >= lines.length) {
+          return {
+            content: [{
+              type: "text" as const,
+              text: `File: ${absolutePath}\nTotal lines: ${lines.length}\nRequested start line ${startLine} is beyond end of file.`,
+            }],
+            isError: true,
+          };
+        }
+
+        const selected = lines.slice(startIndex, startIndex + maxLines);
+        let body = selected.join("\n");
+        const charsTruncated = body.length > maxChars;
+        if (charsTruncated) body = body.slice(0, maxChars);
+
+        const completeSelectedLines = charsTruncated
+          ? body.split("\n").length
+          : selected.length;
+        const endLine = Math.min(lines.length, startLine + completeSelectedLines - 1);
+        const truncated = charsTruncated || endLine < lines.length;
+        const nextLine = truncated ? (charsTruncated ? endLine : endLine + 1) : null;
+        const truncationHint = charsTruncated
+          ? `; line ${endLine} was cut by maxChars, continue from startLine=${endLine} with a larger maxChars`
+          : nextLine
+            ? `; continue with startLine=${nextLine}`
+            : "";
 
         return {
-          content: [{ type: "text" as const, text: content }],
+          content: [{
+            type: "text" as const,
+            text:
+              `File: ${absolutePath}\n` +
+              `Lines: ${startLine}-${endLine} of ${lines.length}\n` +
+              `Truncated: ${truncated}${truncationHint}\n\n` +
+              body,
+          }],
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -131,6 +210,7 @@ export function registerFsTools(server: McpServer, workspaceRoot: string) {
       try {
         const absolutePath = validatePathInWorkspace(filePath, workspaceRoot);
         const fileEncoding: BufferEncoding = (encoding as BufferEncoding) || "utf-8";
+        await mkdir(dirname(absolutePath), { recursive: true });
         // Force "wx" flag — never allow overwrite
         await writeFile(absolutePath, content, { encoding: fileEncoding, flag: "wx" });
 
@@ -189,7 +269,12 @@ export function registerFsTools(server: McpServer, workspaceRoot: string) {
 
         if (oldText !== "" && !currentContent.includes(oldText)) {
           return {
-            content: [{ type: "text" as const, text: `Error: The text to replace was not found in the file.\n\nFile content:\n${currentContent}` }],
+            content: [{
+              type: "text" as const,
+              text:
+                `Error: The text to replace was not found in ${absolutePath}.\n` +
+                `The file has ${currentContent.length} characters. Use read-file with a narrow range or grep to inspect the relevant section.`,
+            }],
             isError: true,
           };
         }
@@ -270,7 +355,7 @@ export function registerFsTools(server: McpServer, workspaceRoot: string) {
             for (let i = 0; i < lines.length; i++) {
               if (regex.test(lines[i])) {
                 results.push({ file: relativePath, line: i + 1, content: lines[i].trim() });
-                if (results.length >= maxResults) return;
+                if (results.length > maxResults) return;
               }
             }
           } catch {}
@@ -289,7 +374,7 @@ export function registerFsTools(server: McpServer, workspaceRoot: string) {
               } else {
                 await searchInFile(fullPath, relativePath);
               }
-              if (results.length >= maxResults) return;
+              if (results.length > maxResults) return;
             }
           } catch {}
         }

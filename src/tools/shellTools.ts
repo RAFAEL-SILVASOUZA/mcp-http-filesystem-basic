@@ -14,6 +14,34 @@ import {
 
 const execAsync = promisify(exec);
 
+const DEFAULT_MAX_OUTPUT_CHARS = 8000;
+const MAX_OUTPUT_CHARS = 50000;
+
+function compactOutput(text: string, maxChars: number): { text: string; omittedChars: number } {
+  if (text.length <= maxChars) return { text, omittedChars: 0 };
+
+  const markerReserve = 120;
+  const available = Math.max(0, maxChars - markerReserve);
+  const headLength = Math.floor(available * 0.6);
+  const tailLength = available - headLength;
+  const omittedChars = text.length - headLength - tailLength;
+  const marker =
+    `\n\n... [${omittedChars} characters omitted; showing beginning and end. ` +
+    `Rerun with a narrower command or increase maxOutputChars.] ...\n\n`;
+
+  return {
+    text: text.slice(0, headLength) + marker + text.slice(text.length - tailLength),
+    omittedChars,
+  };
+}
+
+function commandStreams(stdout: string, stderr: string): string {
+  let output = "";
+  if (stdout) output += `STDOUT:\n${stdout.trimEnd()}\n`;
+  if (stderr) output += `STDERR:\n${stderr.trimEnd()}\n`;
+  return output || "(no output)";
+}
+
 // Dangerous commands that ALWAYS require explicit confirmation
 const DANGEROUS_PATTERNS = [
   /\brm\s+(-[rRfF]|-rf|-fr)/,           // rm -rf, rm -fr, etc.
@@ -90,7 +118,7 @@ export function registerShellTools(server: McpServer, workspaceRoot: string) {
         - For dangerous commands (rm -rf, sudo, format, etc.), confirmation is ALWAYS required
 
         SAFETY:
-        - Output is limited to 50000 characters
+        - Output defaults to 8000 characters, preserving the beginning and end
         - Timeout is 30 seconds (max 120)
         - Dangerous patterns (rm -rf, sudo, format, dd, etc.) require explicit confirmation
 
@@ -127,6 +155,14 @@ export function registerShellTools(server: McpServer, workspaceRoot: string) {
             "The return includes whatever the process printed in its first ~2 seconds, so you can see immediately whether it started (e.g. 'Server listening on :3000') or crashed (e.g. 'EADDRINUSE'). " +
             "Afterwards use read-background-output to read more logs and stop-background-process to terminate it. Always stop what you start."
           ),
+        maxOutputChars: z
+          .number()
+          .int()
+          .min(1000)
+          .max(MAX_OUTPUT_CHARS)
+          .optional()
+          .default(DEFAULT_MAX_OUTPUT_CHARS)
+          .describe("Maximum output characters returned. Default 8000, max 50000. Beginning and end are preserved."),
         confirmed: z
           .boolean()
           .optional()
@@ -134,7 +170,7 @@ export function registerShellTools(server: McpServer, workspaceRoot: string) {
           .describe("Set to true ONLY after the user has explicitly confirmed. For dangerous commands, this is ALWAYS required."),
       },
     },
-    async ({ command, cwd, timeout, background, confirmed }) => {
+    async ({ command, cwd, timeout, background, maxOutputChars, confirmed }) => {
       try {
         // Check if command is dangerous
         const dangerous = isDangerousCommand(command);
@@ -167,10 +203,12 @@ export function registerShellTools(server: McpServer, workspaceRoot: string) {
             ? `⚠️ O processo terminou durante os 2s de warm-up — provavelmente falhou ao iniciar.`
             : `Processo iniciado em background`;
 
-          const output =
+          const rawOutput =
             warmupOutput.length > 0
               ? warmupOutput.join("\n")
               : "(nenhuma saída nos primeiros 2 segundos)";
+
+          const output = compactOutput(rawOutput, maxOutputChars).text;
 
           const footer = crashed
             ? `Use read-background-output({ id: "${snapshot.id}" }) para ver o log completo.`
@@ -196,22 +234,13 @@ export function registerShellTools(server: McpServer, workspaceRoot: string) {
           maxBuffer: 1024 * 1024, // 1MB buffer
         });
 
-        // Build output
-        let output = "";
-        if (stdout) output += `STDOUT:\n${stdout}\n`;
-        if (stderr) output += `STDERR:\n${stderr}\n`;
-
-        // Truncate if too long
-        const maxOutput = 50000;
-        if (output.length > maxOutput) {
-          output = output.slice(0, maxOutput) + "\n\n... [output truncated]";
-        }
+        const output = compactOutput(commandStreams(stdout, stderr), maxOutputChars).text;
 
         return {
           content: [
             {
               type: "text" as const,
-              text: `Command: ${command}\nDirectory: ${workingDir}\n\n${output || "(no output)"}`,
+              text: `Command: ${command}\nDirectory: ${workingDir}\n\n${output}`,
             },
           ],
         };
@@ -223,11 +252,18 @@ export function registerShellTools(server: McpServer, workspaceRoot: string) {
           message = `Command timed out after ${timeout} seconds.`;
         }
 
+        const execError = error as { stdout?: string; stderr?: string };
+        const captured = commandStreams(execError.stdout ?? "", execError.stderr ?? "");
+        const details = captured === "(no output)"
+          ? message
+          : `${message}\n\n${captured}`;
+        const compacted = compactOutput(details, maxOutputChars).text;
+
         return {
           content: [
             {
               type: "text" as const,
-              text: `Error executing command: ${message}`,
+              text: `Error executing command:\n${compacted}`,
             },
           ],
           isError: true,
@@ -297,16 +333,20 @@ export function registerShellTools(server: McpServer, workspaceRoot: string) {
           .optional()
           .default(100)
           .describe("How many of the most recent lines to return. Default 100, max 1000."),
+        maxOutputChars: z.number().int().min(1000).max(MAX_OUTPUT_CHARS).optional().default(DEFAULT_MAX_OUTPUT_CHARS).describe("Maximum log characters returned. Default 8000, max 50000."),
       },
     },
-    async ({ id, lines }) => {
+    async ({ id, lines, maxOutputChars }) => {
       const result = readBackgroundOutput(id, lines);
       if (!result) return unknownIdResult(id);
 
       const { snapshot, omitted } = result;
-      const body = result.lines.length > 0 ? result.lines.join("\n") : "(nenhuma saída capturada)";
+      const rawBody = result.lines.length > 0 ? result.lines.join("\n") : "(no output captured)";
+      const compacted = compactOutput(rawBody, maxOutputChars);
+      const body = compacted.text;
 
       const notes: string[] = [];
+      if (compacted.omittedChars > 0) notes.push(`${compacted.omittedChars} character(s) omitted by the response limit.`);
       if (omitted > 0) notes.push(`${omitted} linha(s) anterior(es) omitida(s) — aumente 'lines' para ver mais.`);
       if (snapshot.truncated) notes.push("O buffer atingiu o limite de 1000 linhas; as mais antigas foram descartadas.");
 
@@ -341,7 +381,8 @@ export function registerShellTools(server: McpServer, workspaceRoot: string) {
       if (!result) return unknownIdResult(id);
 
       const { snapshot, alreadyExited, forced, tail } = result;
-      const body = tail.length > 0 ? tail.join("\n") : "(nenhuma saída capturada)";
+      const rawBody = tail.length > 0 ? tail.join("\n") : "(no output captured)";
+      const body = compactOutput(rawBody, DEFAULT_MAX_OUTPUT_CHARS).text;
 
       const header = alreadyExited
         ? `O processo ${snapshot.id} (PID ${snapshot.pid}) já havia terminado — nada a encerrar.`
