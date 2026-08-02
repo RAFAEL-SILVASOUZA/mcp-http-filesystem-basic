@@ -42,18 +42,44 @@ function commandStreams(stdout: string, stderr: string): string {
   return output || "(no output)";
 }
 
-// Dangerous commands that ALWAYS require explicit confirmation
+/**
+ * Comandos que SEMPRE exigem confirmação explícita (`confirmed: true`).
+ *
+ * A lista cobre os dois shells que `exec` pode abrir: /bin/sh em POSIX e
+ * cmd.exe no Windows. Só padrões Unix deixariam o gate aberto na metade das
+ * máquinas — `rd /s /q` apagaria a árvore sem passar por aqui. Os padrões do
+ * lado Windows são case-insensitive porque o cmd.exe também é.
+ *
+ * Isto é uma rede de segurança, não a política. A política está em
+ * prompts/agent-instructions.md; aqui só barramos o que é irreversível.
+ */
 const DANGEROUS_PATTERNS = [
+  // POSIX
   /\brm\s+(-[rRfF]|-rf|-fr)/,           // rm -rf, rm -fr, etc.
-  /\bformat\b/,                          // disk formatting
   /\bdd\s+if=/,                         // raw disk access
   /\bmkfs\b/,                           // filesystem creation
-  /\bshutdown\b/,                       // system shutdown
-  /\breboot\b/,                         // system reboot
   /\bsudo\b/,                           // privilege escalation
-  /\bchmod\s+[0-7]*[7-9]/,             // dangerous permissions
+  /\bchmod\s+[0-7]*[7-9]/,              // dangerous permissions
   /\bchown\b/,                          // ownership changes
   /\bmv\s+.*\/?(\.env|\.git|node_modules)/, // moving sensitive dirs
+
+  // Windows — cmd.exe e PowerShell invocado via -Command
+  /\brd\s+\/s/i,                        // rd /s /q
+  /\brmdir\s+\/s/i,                     // rmdir /s /q
+  /\bdel\s+(\/[a-z]\s+)*\/s/i,          // del /s (recursivo)
+  /\bRemove-Item\b[^|]*-Recurse/i,      // Remove-Item -Recurse -Force
+  /\bFormat-Volume\b/i,                 // formatação via PowerShell
+  /\brunas\b/i,                         // elevação de privilégio
+  /\bdiskpart\b/i,                      // particionamento
+
+  // Multiplataforma
+  /\bformat\b/i,                        // disk formatting
+  /\bshutdown\b/i,                      // system shutdown
+  /\breboot\b/i,                        // system reboot
+  /\bgit\s+reset\s+--hard\b/i,          // descarta trabalho não commitado
+  /\bgit\s+clean\s+-[a-z]*[fd]/i,       // apaga arquivos não rastreados
+  /\bgit\s+push\b[^|]*(--force|\s-f(\s|$))/i, // reescreve história remota
+  /\b(DROP|TRUNCATE)\s+(TABLE|DATABASE|SCHEMA)\b/i, // destruição de dados
 ];
 
 function isDangerousCommand(command: string): boolean {
@@ -99,34 +125,42 @@ export function registerShellTools(server: McpServer, workspaceRoot: string) {
     "execute_command",
     {
       description:
-        `Execute ANY shell command and return its output. Commands can run in any directory on the system.
+        `Execute a shell command and return its output. Commands can run in any directory on the system.
+
+        SHELL: this runs through the system shell — cmd.exe on Windows, /bin/sh on Linux and
+        macOS. It is NOT PowerShell and NOT bash. On Windows, 'ls', 'cat', 'grep' and 'rm' do
+        not exist (use dir, type, findstr, del), '&&' works but ';' does not, variables are
+        %VAR%, and paths with spaces must be quoted. Call get-system-info if unsure of the OS.
 
         TWO MODES:
         - background: false (default) — waits for the command to finish and returns its output.
-          Use for commands that terminate on their own: builds, tests, git, ls, grep.
+          Use for commands that terminate on their own: builds, tests, git, directory listings.
         - background: true — starts the command and returns immediately with an ID and a PID.
           Use for long-running processes that NEVER terminate on their own: dev servers
           (npm run dev, node server.js), watchers, anything that would otherwise hang until
           the timeout. Then use read-background-output to follow the logs and
           stop-background-process to shut it down when you are done testing.
 
-        ⚠️ CONFIRMATION REQUIRED:
-        - Before executing, the LLM MUST ask the user: "Vou executar: [command]. Executar? (sim / não / sempre permitir)"
-        - "sim" → execute once
-        - "não" → do not execute
-        - "sempre permitir" → execute without asking again for similar commands in this session
-        - For dangerous commands (rm -rf, sudo, format, etc.), confirmation is ALWAYS required
+        CONFIRMATION — depends on what the command does, not on it being a command:
+        - Read-only and verification commands (builds, type-checks, tests, linters,
+          git status/diff/log, directory listings): run them, do not ask. Asking permission
+          to verify defeats the requirement to verify.
+        - State-changing commands (npm/pip install, network access, starting a server,
+          writing outside the workspace): ask once, then honour "sempre permitir".
+        - Destructive commands: ALWAYS ask, every time — recursive deletes, history rewrites
+          (git reset --hard, push --force), DROP/TRUNCATE, sudo/runas, format/dd/mkfs.
+          "sempre permitir" never covers these. They also require confirmed: true.
 
         SAFETY:
         - Output defaults to 8000 characters, preserving the beginning and end
         - Timeout is 30 seconds (max 120)
-        - Dangerous patterns (rm -rf, sudo, format, dd, etc.) require explicit confirmation
+        - Commands matching a destructive pattern are refused unless confirmed: true
 
         Examples:
-        - execute_command("ls -la")
         - execute_command("git status")
         - execute_command("npm run build")
-        - execute_command("grep -r 'TODO' src/")
+        - execute_command("npx tsc --noEmit")
+        - execute_command("dir /b src")                      → Windows; use 'ls' on POSIX
         - execute_command("npm run dev", background: true)   → returns bg-1 / PID 12345`,
       inputSchema: {
         command: z
