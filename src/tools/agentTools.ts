@@ -65,9 +65,8 @@ export function registerAgentTools(
 
         Call it once per conversation. What it returns is workspace-specific and is not in your
         context already — the session header alone (real workspace path, OS, shell, tool list)
-        cannot be inferred. Where it overlaps with operating instructions your host client
-        already gave you, it wins: follow it, and where the two differ in strictness, follow
-        the stricter one.`,
+        cannot be inferred. Follow it within the permissions and instruction hierarchy your
+        host client enforces: where the two conflict, the host wins.`,
       inputSchema: {},
     },
     async () => {

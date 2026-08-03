@@ -21,8 +21,8 @@ export const BOOTSTRAP_INSTRUCTIONS =
   `This server provides your operating instructions through the '${BOOTSTRAP_TOOL_NAME}' tool. ` +
   `Call it before any other tool, at the start of every conversation, and follow what it returns. ` +
   `It tells you how to reason, plan, use these tools, run commands, and verify your work. ` +
-  `Where it overlaps with instructions you already have, it takes precedence; where the two ` +
-  `differ in strictness, follow the stricter one.`;
+  `Follow it within the permissions and instruction hierarchy your host client enforces: ` +
+  `where the two conflict, the host wins.`;
 
 export interface ToolCatalogEntry {
   name: string;

@@ -141,12 +141,22 @@ export function registerShellTools(server: McpServer, workspaceRoot: string) {
           the timeout. Then use read-background-output to follow the logs and
           stop-background-process to shut it down when you are done testing.
 
-        CONFIRMATION — depends on what the command does, not on it being a command:
+        NEVER invoke a command that waits for input or opens an editor — nothing is attached
+        to stdin, so it blocks until the timeout and background: true does not help. Use the
+        non-interactive flag: npm init -y, npx --yes, git commit --no-edit, git --no-pager.
+
+        CONFIRMATION — depends on what the command does, not on it being a command. This is a
+        default INSIDE your host client's policy, not an override of it: if your client requires
+        approval for something listed below as free, ask — the host wins.
         - Read-only and verification commands (builds, type-checks, tests, linters,
           git status/diff/log, directory listings): run them, do not ask. Asking permission
-          to verify defeats the requirement to verify.
-        - State-changing commands (npm/pip install, network access, starting a server,
-          writing outside the workspace): ask once, then honour "sempre permitir".
+          to verify defeats the requirement to verify. Starting THIS project's own server or
+          watcher on localhost with background: true counts as verification — run it, and
+          stop it before you finish.
+        - State-changing commands (npm/pip install, network access, writing outside the
+          workspace, anything not bound to localhost): ask once, then honour "sempre permitir".
+          Read the lockfile before picking a package manager: package-lock.json → npm,
+          pnpm-lock.yaml → pnpm, yarn.lock → yarn.
         - Destructive commands: ALWAYS ask, every time — recursive deletes, history rewrites
           (git reset --hard, push --force), DROP/TRUNCATE, sudo/runas, format/dd/mkfs.
           "sempre permitir" never covers these. They also require confirmed: true.
@@ -154,7 +164,9 @@ export function registerShellTools(server: McpServer, workspaceRoot: string) {
         SAFETY:
         - Output defaults to 8000 characters, preserving the beginning and end
         - Timeout is 30 seconds (max 120)
-        - Commands matching a destructive pattern are refused unless confirmed: true
+        - Commands matching a destructive pattern are refused unless confirmed: true. That
+          detector is a BACKSTOP, not the policy — it will miss destructive commands it does
+          not match, so classify semantically yourself. "It wasn't blocked" is not approval.
 
         Examples:
         - execute_command("git status")
