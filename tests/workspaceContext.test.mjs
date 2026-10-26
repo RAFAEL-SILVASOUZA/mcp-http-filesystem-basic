@@ -32,9 +32,9 @@ test('workspace_argument_schema_precedence_validation_and_isolation', async (t) 
       }
     });
     await t.test('bootstrap_reports_call_workspace', async () => {
-      const result = await client.callTool({ name: 'get-agent-instructions', arguments: { 'x-workspace-root': override } });
+      const result = await client.callTool({ name: 'read-file', arguments: { path: 'marker.txt', 'x-workspace-root': override } });
       assert.equal(result.isError, undefined);
-      assert.ok(result.content[0].text.includes(`Workspace: ${override}`));
+      assert.ok(result.content[0].text.includes(join(override, 'marker.txt')));
     });
     await t.test('override_and_fallback_are_isolated_in_concurrent_calls', async () => {
       const [a, b, c] = await Promise.all([

@@ -8,7 +8,6 @@ Um servidor **MCP (Model Context Protocol)** Streamable HTTP modular que fornece
 
 | Tool | Descrição |
 |------|-----------|
-| `get-agent-instructions` | Retorna as instruções operacionais do agente + contexto da sessão. **Deve ser lida primeiro** |
 | `file-glob` | Explora diretórios e lista arquivos/subdiretórios de forma hierárquica |
 | `read-file` | Lê intervalos paginados de arquivos de texto, com limites de linhas e caracteres |
 | `create-file` | Cria um novo arquivo e seus diretórios-pai; nunca sobrescreve |
@@ -21,44 +20,6 @@ Um servidor **MCP (Model Context Protocol)** Streamable HTTP modular que fornece
 | `read-background-output` | Lê o stdout/stderr acumulado de um processo em background |
 | `stop-background-process` | Encerra um processo em background (mata a árvore inteira) |
 | `get-system-info` | Retorna data, hora e informações do sistema operacional |
-
-### Instruções do agente (`get-agent-instructions`)
-
-Para um modelo rodando em llama.cpp puro — sem system prompt de agente — este
-servidor entrega ele mesmo as instruções operacionais: como raciocinar, planejar,
-usar as ferramentas, executar comandos e verificar o próprio trabalho.
-
-O texto fica em [`prompts/agent-instructions.md`](prompts/agent-instructions.md),
-editável sem recompilar. Ele é lido **a cada chamada**, então um ajuste de redação
-vale na conversa seguinte, sem reiniciar o servidor. Na frente dele vai um
-cabeçalho gerado em runtime, com o workspace, o sistema operacional, a data e a
-lista real de tools registradas — sem isso o agente gasta várias chamadas só
-descobrindo onde está.
-
-**Nada obriga um modelo a chamar uma tool.** Por isso a aderência é atacada em
-três camadas, e nenhuma delas basta sozinha:
-
-1. **`instructions` do protocolo MCP** — vai no `InitializeResult`, antes de
-   qualquer inferência. Clientes que respeitam o protocolo injetam sozinhos;
-   llama.cpp cru ignora.
-2. **Bootstrap no launcher** — o trecho abaixo, no system prompt do llama.cpp. É o
-   único ponto que o modelo garantidamente lê, e é o que dá autoridade ao texto
-   devolvido pela tool (o retorno de uma tool não é um system prompt de verdade —
-   modelos dão menos peso a ele).
-3. **Gate** (`AGENT_GATE=on`) — as demais tools recusam até
-   `get-agent-instructions` ser chamada, com uma mensagem que diz o que fazer.
-   Funciona mesmo que o modelo ignore as camadas 1 e 2.
-
-Trecho sugerido para o system prompt do launcher:
-
-```
-Sua primeira ação em qualquer conversa é chamar a tool get-agent-instructions.
-O que ela retornar são suas instruções operacionais e tem precedência sobre
-este texto. Não chame nenhuma outra tool antes dela.
-```
-
-O gate vem **desligado por padrão**, para não afetar clientes que já têm um bom
-system prompt. Ligue-o no ambiente do llama.cpp, onde ele faz falta.
 
 ### Executando servidores em background
 
@@ -128,8 +89,6 @@ npm start
 | Variável | Padrão | Descrição |
 |----------|--------|-----------|
 | `PORT` | `3001` | Porta do servidor HTTP |
-| `AGENT_GATE` | *(desligado)* | `on` faz as demais tools recusarem até `get-agent-instructions` ser chamada |
-| `AGENT_INSTRUCTIONS_PATH` | `prompts/agent-instructions.md` | Caminho alternativo para o arquivo de instruções |
 
 ---
 
@@ -353,11 +312,9 @@ mcp-http/
 │   ├── index.ts            # Ponto de entrada (bootstrap)
 │   ├── server/
 │   │   ├── express.ts      # Configuração do servidor Express + CORS
-│   │   └── mcpServer.ts    # Fábrica do McpServer
-│   ├── agent/
-│   │   └── gatedServer.ts  # Gate de bootstrap + coleta do catálogo de tools
+│   │   ├── mcpServer.ts    # Fábrica do McpServer
+│   │   └── workspaceContext.ts # Injeta x-workspace-root em toda tool
 │   ├── tools/
-│   │   ├── agentTools.ts   # Tool de instruções do agente (get-agent-instructions)
 │   │   ├── fsTools.ts      # Tools de sistema de arquivos (file-glob, read-file, create-file, edit-file, grep)
 │   │   ├── webTools.ts     # Tools web (scrape_url, websearch)
 │   │   ├── shellTools.ts   # Tools de shell (execute_command + gestão de background)
@@ -366,8 +323,7 @@ mcp-http/
 │   └── utils/
 │       ├── fs.ts           # Utilitários de FS (gitignore, exploreDirectory)
 │       └── path.ts         # Validação de caminhos (anti path-traversal)
-├── prompts/
-│   └── agent-instructions.md  # Instruções operacionais do agente (editável)
+├── tests/                  # Testes nativos do Node (npm test)
 ├── dist/                   # Arquivos compilados (após build)
 ├── package.json            # Dependências e scripts
 ├── tsconfig.json           # Configuração TypeScript

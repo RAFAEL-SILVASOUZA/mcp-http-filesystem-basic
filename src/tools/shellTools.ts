@@ -50,8 +50,8 @@ function commandStreams(stdout: string, stderr: string): string {
  * máquinas — `rd /s /q` apagaria a árvore sem passar por aqui. Os padrões do
  * lado Windows são case-insensitive porque o cmd.exe também é.
  *
- * Isto é uma rede de segurança, não a política. A política está em
- * prompts/agent-instructions.md; aqui só barramos o que é irreversível.
+ * Isto é uma rede de segurança, não a política: aqui só barramos o que é
+ * irreversível. A classificação semântica continua sendo de quem chama.
  */
 const DANGEROUS_PATTERNS = [
   // POSIX
