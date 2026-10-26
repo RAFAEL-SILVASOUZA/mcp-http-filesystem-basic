@@ -5,6 +5,7 @@ import { registerShellTools } from "../tools/shellTools.js";
 import { registerSystemTools } from "../tools/systemTools.js";
 import { registerAgentTools } from "../tools/agentTools.js";
 import { installAgentGate, BOOTSTRAP_INSTRUCTIONS } from "../agent/gatedServer.js";
+import { installWorkspaceContext } from "./workspaceContext.js";
 
 export function createMcpServer(workspaceRoot: string): McpServer {
   const server = new McpServer(
@@ -21,10 +22,12 @@ export function createMcpServer(workspaceRoot: string): McpServer {
   // escapariam dele e não entrariam no catálogo.
   const session = installAgentGate(server);
 
-  registerAgentTools(server, workspaceRoot, session);
-  registerFsTools(server, workspaceRoot);
+  const getWorkspaceRoot = installWorkspaceContext(server, workspaceRoot);
+
+  registerAgentTools(server, getWorkspaceRoot, session);
+  registerFsTools(server, getWorkspaceRoot);
   registerWebTools(server);
-  registerShellTools(server, workspaceRoot);
+  registerShellTools(server, getWorkspaceRoot);
   registerSystemTools(server);
 
   return server;

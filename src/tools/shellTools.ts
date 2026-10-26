@@ -120,7 +120,7 @@ function unknownIdResult(id: string) {
   );
 }
 
-export function registerShellTools(server: McpServer, workspaceRoot: string) {
+export function registerShellTools(server: McpServer, workspaceRoot: () => string) {
   server.registerTool(
     "execute_command",
     {
@@ -235,9 +235,9 @@ export function registerShellTools(server: McpServer, workspaceRoot: string) {
         }
 
         // Determine working directory — any path is allowed
-        let workingDir = workspaceRoot;
+        let workingDir = workspaceRoot();
         if (cwd) {
-          workingDir = isAbsolute(cwd) ? cwd : join(workspaceRoot, cwd);
+          workingDir = isAbsolute(cwd) ? cwd : join(workspaceRoot(), cwd);
         }
 
         // Background mode: start and return the handle, do not wait for the end

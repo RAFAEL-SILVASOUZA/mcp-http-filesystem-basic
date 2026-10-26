@@ -7,7 +7,7 @@ import { minimatch } from "minimatch";
 import { loadGitignore, isIgnored, exploreDirectory } from "../utils/fs.js";
 import { validatePathInWorkspace } from "../utils/path.js";
 
-export function registerFsTools(server: McpServer, workspaceRoot: string) {
+export function registerFsTools(server: McpServer, workspaceRoot: () => string) {
   // Register file-glob tool
   server.registerTool(
     "file-glob",
@@ -41,8 +41,8 @@ export function registerFsTools(server: McpServer, workspaceRoot: string) {
     },
     async ({ path: dirPath, maxDepth, maxEntries }) => {
       try {
-        const absolutePath = validatePathInWorkspace(dirPath, workspaceRoot);
-        const gitignorePatterns = await loadGitignore(workspaceRoot);
+        const absolutePath = validatePathInWorkspace(dirPath, workspaceRoot());
+        const gitignorePatterns = await loadGitignore(workspaceRoot());
         const { files, directories } = await exploreDirectory(absolutePath, maxDepth, 0, absolutePath, gitignorePatterns);
         const totalEntries = files.length + directories.length;
         const truncated = totalEntries > maxEntries;
@@ -123,7 +123,7 @@ export function registerFsTools(server: McpServer, workspaceRoot: string) {
     },
     async ({ path: filePath, encoding, startLine, maxLines, maxChars }) => {
       try {
-        const absolutePath = validatePathInWorkspace(filePath, workspaceRoot);
+        const absolutePath = validatePathInWorkspace(filePath, workspaceRoot());
         const fileEncoding: BufferEncoding = (encoding as BufferEncoding) || "utf-8";
         const content = await readFile(absolutePath, { encoding: fileEncoding });
         const lines = content.split(/\r?\n/);
@@ -208,7 +208,7 @@ export function registerFsTools(server: McpServer, workspaceRoot: string) {
     },
     async ({ path: filePath, content, encoding }) => {
       try {
-        const absolutePath = validatePathInWorkspace(filePath, workspaceRoot);
+        const absolutePath = validatePathInWorkspace(filePath, workspaceRoot());
         const fileEncoding: BufferEncoding = (encoding as BufferEncoding) || "utf-8";
         await mkdir(dirname(absolutePath), { recursive: true });
         // Force "wx" flag — never allow overwrite
@@ -263,7 +263,7 @@ export function registerFsTools(server: McpServer, workspaceRoot: string) {
     },
     async ({ path: filePath, oldText, newText, encoding, replaceAll }) => {
       try {
-        const absolutePath = validatePathInWorkspace(filePath, workspaceRoot);
+        const absolutePath = validatePathInWorkspace(filePath, workspaceRoot());
         const fileEncoding: BufferEncoding = (encoding as BufferEncoding) || "utf-8";
         const currentContent = await readFile(absolutePath, { encoding: fileEncoding });
 
@@ -319,8 +319,8 @@ export function registerFsTools(server: McpServer, workspaceRoot: string) {
     },
     async ({ pattern, path: searchPath, caseInsensitive, maxResults, glob }) => {
       try {
-        const absolutePath = validatePathInWorkspace(searchPath, workspaceRoot);
-        const gitignorePatterns = await loadGitignore(workspaceRoot);
+        const absolutePath = validatePathInWorkspace(searchPath, workspaceRoot());
+        const gitignorePatterns = await loadGitignore(workspaceRoot());
         const cleanGlob = glob ? glob.trim().replace(/,\s+/g, ',') : undefined;
 
         if (cleanGlob) {

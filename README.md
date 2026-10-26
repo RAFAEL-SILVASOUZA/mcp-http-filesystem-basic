@@ -158,6 +158,23 @@ Adicione ao arquivo `claude_desktop_config.json`:
 }
 ```
 
+### Workspace por chamada (`x-workspace-root`)
+
+Toda tool expõe o argumento `x-workspace-root` (string, absoluta, opcional). Ele é injetado
+centralmente em `src/server/workspaceContext.ts`, que embrulha `registerTool` e o `tool()`
+legado: nenhuma tool precisa declará-lo, e uma tool nova já nasce com ele.
+
+- Cliente que **não** pode enviar headers (ex.: configuração HTTP pura) passa o workspace aqui:
+  `{ "path": "read-file", "arguments": { "path": "a.txt", "x-workspace-root": "C:\\projetos\\x" } }`
+- Precedência: argumento da chamada > header `X-Workspace-Root` > `process.cwd()`.
+- O header continua aceito para clientes que o suportam; nenhum dos dois é obrigatório.
+- Valor relativo ou não-string é recusado pela validação do schema (`isError`).
+- Cada chamada resolve o root em `AsyncLocalStorage`, então chamadas concorrentes de workspaces
+  diferentes não se misturam.
+
+Testes: `npm test` (`tests/workspaceContext.test.mjs` cobre protocolo in-memory e precedência;
+`tests/workspace-http.test.mjs` sobe o servidor real e roda um cliente HTTP que não envia header).
+
 ---
 
 ## 🛠️ Documentação das Tools

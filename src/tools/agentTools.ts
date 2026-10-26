@@ -47,7 +47,7 @@ function buildHeader(workspaceRoot: string, session: AgentSession): string {
 
 export function registerAgentTools(
   server: McpServer,
-  workspaceRoot: string,
+  workspaceRoot: () => string,
   session: AgentSession
 ) {
   server.registerTool(
@@ -98,7 +98,7 @@ export function registerAgentTools(
         content: [
           {
             type: "text" as const,
-            text: `${buildHeader(workspaceRoot, session)}\n\n---\n\n${body.trim()}`,
+            text: `${buildHeader(workspaceRoot(), session)}\n\n---\n\n${body.trim()}`,
           },
         ],
       };
